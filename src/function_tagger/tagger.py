@@ -1,8 +1,20 @@
 import ast
+import logging
 import re
 from pathlib import Path
 
-from function_tagger.tag_class import AstFunctionType, Tag, TaggedFunction
+from function_tagger.extra_types import (
+    PlaceHolderType,
+    TagScanResult,
+)
+from function_tagger.tag_class import (
+    AstFunctionType,
+    Tag,
+    TaggedFunction,
+    UntaggedFunction,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def get_function_tags_from_docstring(
@@ -71,14 +83,17 @@ def walk_class_def(
     return tagged_functions
 
 
-def parse_file(file_path: Path) -> list[TaggedFunction]:
+def parse_file(file_path: Path) -> TagScanResult:
     """
     [Needs Review]
     """
+    if file_path.is_dir():
+        raise ValueError(f"{file_path.name} cannot be directory")
     f = open(file_path, "r")
     module = ast.parse(f.read())
     f.close()
     tagged_functions: list[TaggedFunction] = []
+    untagged_functions: list[UntaggedFunction] = []
     for m in module.body:
         if isinstance(m, ast.ClassDef):
             tagged_functions.extend(walk_class_def(m, file_path))
@@ -90,41 +105,29 @@ def parse_file(file_path: Path) -> list[TaggedFunction]:
             )
             if tagged_func:
                 tagged_functions.append(tagged_func)
-    return tagged_functions
+            else:
+                untagged_functions.append(
+                    UntaggedFunction(m.name, None, file_path, m)
+                )
+    return tagged_functions, untagged_functions
 
 
 def parse_dir(
     dir_path: Path,
-    debug_on: bool = True,
-) -> dict[Path, list[TaggedFunction]]:
+) -> PlaceHolderType:
     """
-    [TODO: Clean up print statements to log debug statements]
+    [Needs Review]
     """
     dir_path = dir_path.resolve()
     if not dir_path.is_dir():
         raise ValueError(f"{dir_path.name} must be directory")
     tagged_functions_to_path: dict[Path, list[TaggedFunction]] = {}
+    untagged_functions_to_path: dict[Path, list[UntaggedFunction]] = {}
     for f in dir_path.rglob("*.py"):
         if f.is_file():
-            tagged = parse_file(f)
+            tagged, untagged = parse_file(f)
             if tagged:
                 tagged_functions_to_path[f] = tagged
-                if debug_on:
-                    print(f"{f.name} returned {len(tagged)} tagged functions")
-            else:
-                if debug_on:
-                    print(f"{f.name} returned no tagged functions")
-    return tagged_functions_to_path
-
-
-def main():
-    dir = Path("/Users/trentlee/PythonProjects/meow-meow-hood/src/robinhood/")
-    n = parse_dir(dir, debug_on=True)
-    for k, v in n.items():
-        print(k)
-        for i in v:
-            print(i)
-
-
-if __name__ == "__main__":
-    main()
+            if untagged:
+                untagged_functions_to_path[f] = untagged
+    return tagged_functions_to_path, untagged_functions_to_path
